@@ -1,0 +1,26 @@
+[package]
+name = "strata_cli"
+version = "0.1.0"
+edition = "2021"
+authors = ["Strata Contributors"]
+license = "MIT"
+description = "Universal Developer CLI, Scaffolding Engine, and Cross-Platform Packaging Toolchain for Strata"
+repository = "https://github.com/strataui/cli"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "strata"
+path = "src/main.rs"
+
+[dependencies]
+strata = { path = "../strata/crates/strata" }
+strata_dom = { path = "../strata/crates/core/strata_dom" }
+strata_codegen_js = { path = "../mica/crates/strata_codegen_js" }
+strata_mobile_test = { path = "../strata/crates/harnesses/strata_mobile_test" }
+strata_sim = { path = "../strata/crates/harnesses/strata_sim" }
+strata_mcp = { path = "../strata/crates/tooling/strata_mcp" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+flate2 = "1.0"
