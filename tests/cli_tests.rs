@@ -64,14 +64,14 @@ fn test_cli_args_parsing_commands() {
     );
 
     // 4. Run command
-    let cmd = CliArgs::parse_from(["strata", "run", "--release", "--example", "eda_studio"]).unwrap();
+    let cmd = CliArgs::parse_from(["strata", "run", "--release", "--example", "saas_dashboard"]).unwrap();
     assert_eq!(
         cmd,
         CliCommand::Run {
             target: BuildTarget::Desktop,
             release: true,
             mcp: true,
-            example: Some("eda_studio".to_string()),
+            example: Some("saas_dashboard".to_string()),
             bin: None,
         }
     );
