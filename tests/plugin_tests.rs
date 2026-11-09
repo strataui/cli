@@ -6,6 +6,30 @@ use strata_cli::prelude::*;
 
 static TEST_MUTEX: Mutex<()> = Mutex::new(());
 
+fn make_test_binary_bytes(target: BuildTarget) -> Vec<u8> {
+    match target {
+        BuildTarget::Linux | BuildTarget::Desktop => {
+            let mut elf = vec![0u8; 1024];
+            elf[0..4].copy_from_slice(b"\x7fELF");
+            elf[4] = 2; // 64-bit
+            elf[5] = 1; // little endian
+            elf[6] = 1; // version
+            elf[16..18].copy_from_slice(&2u16.to_le_bytes()); // ET_EXEC
+            elf[18..20].copy_from_slice(&0x003Eu16.to_le_bytes()); // x86_64
+            elf[20..24].copy_from_slice(&1u32.to_le_bytes()); // EV_CURRENT
+            elf
+        }
+        _ => vec![0u8; 1024],
+    }
+}
+
+fn seed_test_binary(dir: &std::path::Path, target: BuildTarget, app_name: &str) {
+    let dist_target = dir.join("dist").join(target.as_str());
+    fs::create_dir_all(&dist_target).unwrap();
+    let bin_path = dist_target.join(format!("{}{}", app_name, target.binary_extension()));
+    fs::write(&bin_path, make_test_binary_bytes(target)).unwrap();
+}
+
 #[test]
 fn test_plugin_dynamic_app_name_mutation() {
     let _lock = TEST_MUTEX.lock().unwrap();
@@ -13,6 +37,7 @@ fn test_plugin_dynamic_app_name_mutation() {
     let temp_dir = std::env::temp_dir().join(format!("strata_plugin_test_{}", std::process::id()));
     let _ = fs::remove_dir_all(&temp_dir);
     fs::create_dir_all(&temp_dir).unwrap();
+    seed_test_binary(&temp_dir, BuildTarget::Linux, "quantum-strata-app");
 
     let plugins_dir = temp_dir.join("plugins");
     fs::create_dir_all(&plugins_dir).unwrap();
@@ -67,6 +92,7 @@ fn test_plugin_declarative_action_methods() {
     let temp_dir = std::env::temp_dir().join(format!("strata_action_test_{}", std::process::id()));
     let _ = fs::remove_dir_all(&temp_dir);
     fs::create_dir_all(&temp_dir).unwrap();
+    seed_test_binary(&temp_dir, BuildTarget::Linux, "enterprise-core-engine");
 
     let toml_file = temp_dir.join("strata.toml");
     let toml_content = r#"
@@ -102,6 +128,7 @@ fn test_plugin_environment_conditional_execution() {
     let temp_dir = std::env::temp_dir().join(format!("strata_env_plugin_test_{}", std::process::id()));
     let _ = fs::remove_dir_all(&temp_dir);
     fs::create_dir_all(&temp_dir).unwrap();
+    seed_test_binary(&temp_dir, BuildTarget::Desktop, "my-app");
 
     let yaml_file = temp_dir.join("strata.yaml");
     let yaml_content = r#"
@@ -156,6 +183,7 @@ fn test_in_memory_plugin_registration() {
     let temp_dir = std::env::temp_dir().join(format!("strata_in_mem_{}", std::process::id()));
     let _ = fs::remove_dir_all(&temp_dir);
     fs::create_dir_all(&temp_dir).unwrap();
+    seed_test_binary(&temp_dir, BuildTarget::Desktop, "strata-app");
 
     PluginEngine::register_in_memory_plugin(Box::new(CustomInMemPlugin));
 

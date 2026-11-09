@@ -95,6 +95,10 @@ fn test_cli_args_parsing_commands() {
             format: Some(PackageFormat::Apk),
             out_dir: None,
             env: None,
+            sign_identity: None,
+            notarize: false,
+            keychain_profile: None,
+            certificate_thumbprint: None,
         }
     );
 
@@ -107,7 +111,6 @@ fn test_cli_args_parsing_commands() {
             verbose: false,
             android: false,
             ios: false,
-            mock_ios: false,
         }
     );
 
@@ -119,7 +122,6 @@ fn test_cli_args_parsing_commands() {
             verbose: false,
             android: true,
             ios: false,
-            mock_ios: false,
         }
     );
 
@@ -186,6 +188,42 @@ fn test_hmr_session_state_preservation() {
     assert_eq!(session.restore_state(), Some(state_payload.as_slice()));
 }
 
+fn seed_test_binary(dir: &std::path::Path, target: BuildTarget, app_name: &str) {
+    let dist_target = dir.join("dist").join(target.as_str());
+    fs::create_dir_all(&dist_target).unwrap();
+    let bin_path = dist_target.join(format!("{}{}", app_name, target.binary_extension()));
+    let bytes = match target {
+        BuildTarget::Linux | BuildTarget::Desktop => {
+            let mut elf = vec![0u8; 1024];
+            elf[0..4].copy_from_slice(b"\x7fELF");
+            elf[4] = 2; elf[5] = 1; elf[6] = 1;
+            elf[16..18].copy_from_slice(&2u16.to_le_bytes());
+            elf[18..20].copy_from_slice(&0x003Eu16.to_le_bytes());
+            elf[20..24].copy_from_slice(&1u32.to_le_bytes());
+            elf
+        }
+        BuildTarget::Android => {
+            let mut elf = vec![0u8; 1024];
+            elf[0..4].copy_from_slice(b"\x7fELF");
+            elf[4] = 2; elf[5] = 1; elf[6] = 1;
+            elf[16..18].copy_from_slice(&3u16.to_le_bytes());
+            elf[18..20].copy_from_slice(&183u16.to_le_bytes());
+            elf[20..24].copy_from_slice(&1u32.to_le_bytes());
+            elf
+        }
+        BuildTarget::MacOs => {
+            let mut macho = vec![0u8; 1024];
+            macho[0..4].copy_from_slice(&[0xCF, 0xFA, 0xED, 0xFE]);
+            macho[4..8].copy_from_slice(&0x0100000Cu32.to_le_bytes());
+            macho[12..16].copy_from_slice(&2u32.to_le_bytes());
+            macho[24..28].copy_from_slice(&0x00200085u32.to_le_bytes());
+            macho
+        }
+        _ => vec![0u8; 128],
+    };
+    fs::write(&bin_path, bytes).unwrap();
+}
+
 #[test]
 fn test_builder_web_js_and_web_wasm_emission() {
     let temp_dir = std::env::temp_dir().join(format!("strata_test_build_{}", std::process::id()));
@@ -206,6 +244,7 @@ fn test_builder_web_js_and_web_wasm_emission() {
     assert!(temp_dir.join("dist/web-wasm/loader.js").exists());
 
     // 3. Desktop Native build (Release)
+    seed_test_binary(&temp_dir, BuildTarget::Desktop, "strata-app");
     let desktop_report = BuildRunner::build(BuildTarget::Desktop, true, &temp_dir).unwrap();
     assert_eq!(desktop_report.target, BuildTarget::Desktop);
     assert!(desktop_report.release);
@@ -229,6 +268,9 @@ fn test_packager_formats_and_validation() {
     let temp_dir = std::env::temp_dir().join(format!("strata_test_package_{}", std::process::id()));
     let _ = fs::remove_dir_all(&temp_dir);
     fs::create_dir_all(&temp_dir).unwrap();
+
+    seed_test_binary(&temp_dir, BuildTarget::Android, "strata-app");
+    seed_test_binary(&temp_dir, BuildTarget::MacOs, "strata-app");
 
     // Valid packaging
     let report = Packager::package(BuildTarget::Android, Some(PackageFormat::Apk), &temp_dir).unwrap();

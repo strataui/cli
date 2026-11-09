@@ -172,3 +172,78 @@ fn test_package_formats_parsing() {
         _ => panic!("Expected Package command"),
     }
 }
+
+#[test]
+fn test_package_signing_flags() {
+    let cmd = CliArgs::parse_from([
+        "strata",
+        "package",
+        "--target",
+        "macos",
+        "--format",
+        "dmg",
+        "--sign-identity",
+        "Developer ID Application: Strata Inc (12345ABCDE)",
+        "--notarize",
+        "--keychain-profile",
+        "AC_NOTARY_PROFILE",
+    ])
+    .unwrap();
+
+    match cmd {
+        CliCommand::Package {
+            target,
+            format,
+            sign_identity,
+            notarize,
+            keychain_profile,
+            certificate_thumbprint,
+            ..
+        } => {
+            assert_eq!(target, BuildTarget::MacOs);
+            assert_eq!(format, Some(PackageFormat::Dmg));
+            assert_eq!(
+                sign_identity,
+                Some("Developer ID Application: Strata Inc (12345ABCDE)".to_string())
+            );
+            assert!(notarize);
+            assert_eq!(keychain_profile, Some("AC_NOTARY_PROFILE".to_string()));
+            assert_eq!(certificate_thumbprint, None);
+        }
+        _ => panic!("Expected Package command"),
+    }
+
+    let cmd_win = CliArgs::parse_from([
+        "strata",
+        "package",
+        "--target",
+        "windows",
+        "--format",
+        "msi",
+        "--certificate-thumbprint",
+        "0123456789ABCDEF0123456789ABCDEF01234567",
+    ])
+    .unwrap();
+
+    match cmd_win {
+        CliCommand::Package {
+            target,
+            format,
+            certificate_thumbprint,
+            sign_identity,
+            notarize,
+            ..
+        } => {
+            assert_eq!(target, BuildTarget::Windows);
+            assert_eq!(format, Some(PackageFormat::Msi));
+            assert_eq!(
+                certificate_thumbprint,
+                Some("0123456789ABCDEF0123456789ABCDEF01234567".to_string())
+            );
+            assert_eq!(sign_identity, None);
+            assert!(!notarize);
+        }
+        _ => panic!("Expected Package command"),
+    }
+}
+

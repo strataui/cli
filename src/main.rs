@@ -159,6 +159,10 @@ fn main() {
             format,
             out_dir,
             env,
+            sign_identity,
+            notarize,
+            keychain_profile,
+            certificate_thumbprint,
         } => {
             CliArgs::print_banner();
             let base_dir = out_dir.unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
@@ -167,7 +171,14 @@ fn main() {
                 target.as_str(),
                 env.as_deref().unwrap_or("production")
             );
-            match Packager::package_with_env(target, format, &base_dir, env.as_deref()) {
+            let options = PackageOptions {
+                env,
+                sign_identity,
+                notarize,
+                keychain_profile,
+                certificate_thumbprint,
+            };
+            match Packager::package_with_options(target, format, &base_dir, options) {
                 Ok(report) => {
                     println!(
                         "  \x1b[32m√\x1b[0m Created \x1b[36m{}\x1b[0m installer at \x1b[90m{:?}\x1b[0m",
@@ -187,15 +198,13 @@ fn main() {
             verbose,
             android,
             ios,
-            mock_ios,
         } => {
             CliArgs::print_banner();
-            if android || ios || mock_ios {
+            if android || ios {
                 println!("  \x1b[36m›\x1b[0m Running Strata Mobile Virtualization Test Suite...");
                 let config = strata_mobile_test::StrataMobileTestConfig {
-                    is_android: android || (!ios && !mock_ios),
+                    is_android: android || !ios,
                     is_ios: ios,
-                    is_mock_ios: mock_ios,
                     device_serial: None,
                     enable_monkey_fuzz: true,
                     fuzz_event_count: 50,
@@ -243,8 +252,7 @@ fn main() {
             println!("  \x1b[36m›\x1b[0m Launching Strata Native Mobile Simulator [{}]...", profile.name);
             let workspace = strata_sim::MobileSimulatorWorkspace::new(profile);
             let view = workspace.render_view();
-            println!("  \x1b[32m√\x1b[0m Running in pure Rust (Zero Chromium / Zero QEMU).\n");
-            strata::launch(move || view);
+            strata::launch(move || view.clone());
         }
         CliCommand::Mcp { socket, action } => {
             let sock_path = socket.unwrap_or_else(strata::mcp_bridge::default_dev_socket_path);

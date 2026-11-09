@@ -112,12 +112,39 @@ pub struct EnvironmentConfig {
     pub actions: Vec<String>,
 }
 
+/// Code signing and notarization configuration section for Apple and Microsoft platforms.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SigningConfig {
+    pub identity: Option<String>,
+    pub notarize: bool,
+    pub keychain_profile: Option<String>,
+    pub certificate_thumbprint: Option<String>,
+    pub timestamp_server: Option<String>,
+    pub entitlements_file: Option<PathBuf>,
+    pub hardened_runtime: bool,
+}
+
+impl Default for SigningConfig {
+    fn default() -> Self {
+        Self {
+            identity: None,
+            notarize: false,
+            keychain_profile: None,
+            certificate_thumbprint: None,
+            timestamp_server: Some("http://timestamp.digicert.com".to_string()),
+            entitlements_file: None,
+            hardened_runtime: true,
+        }
+    }
+}
+
 /// Root configuration holding application, window, web, plugins, and environment definitions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StrataConfig {
     pub app: AppConfig,
     pub window: WindowConfigSection,
     pub web: WebConfigSection,
+    pub signing: SigningConfig,
     pub plugins: Vec<PluginSpec>,
     pub environments: HashMap<String, EnvironmentConfig>,
     pub active_environment: String,
@@ -130,6 +157,7 @@ impl Default for StrataConfig {
             app: AppConfig::default(),
             window: WindowConfigSection::default(),
             web: WebConfigSection::default(),
+            signing: SigningConfig::default(),
             plugins: Vec::new(),
             environments: HashMap::new(),
             active_environment: "development".to_string(),
@@ -287,6 +315,16 @@ impl StrataConfig {
                         "styles_css" | "styles_css_name" => {
                             config.web.styles_css_name = parse_string_val(val_str);
                         }
+                        _ => {}
+                    },
+                    "signing" => match key {
+                        "identity" | "apple_identity" => config.signing.identity = Some(parse_string_val(val_str)),
+                        "notarize" => config.signing.notarize = val_str == "true",
+                        "keychain_profile" | "profile" => config.signing.keychain_profile = Some(parse_string_val(val_str)),
+                        "certificate_thumbprint" | "thumbprint" | "windows_thumbprint" => config.signing.certificate_thumbprint = Some(parse_string_val(val_str)),
+                        "timestamp_server" | "timestamp" => config.signing.timestamp_server = Some(parse_string_val(val_str)),
+                        "entitlements" | "entitlements_file" => config.signing.entitlements_file = Some(PathBuf::from(parse_string_val(val_str))),
+                        "hardened_runtime" => config.signing.hardened_runtime = val_str != "false",
                         _ => {}
                     },
                     _ => {}
@@ -452,6 +490,16 @@ impl StrataConfig {
                         "styles_css" | "styles_css_name" => {
                             config.web.styles_css_name = parse_string_val(val_str);
                         }
+                        _ => {}
+                    },
+                    "signing" => match key {
+                        "identity" | "apple_identity" => config.signing.identity = Some(parse_string_val(val_str)),
+                        "notarize" => config.signing.notarize = val_str == "true",
+                        "keychain_profile" | "profile" => config.signing.keychain_profile = Some(parse_string_val(val_str)),
+                        "certificate_thumbprint" | "thumbprint" | "windows_thumbprint" => config.signing.certificate_thumbprint = Some(parse_string_val(val_str)),
+                        "timestamp_server" | "timestamp" => config.signing.timestamp_server = Some(parse_string_val(val_str)),
+                        "entitlements" | "entitlements_file" => config.signing.entitlements_file = Some(PathBuf::from(parse_string_val(val_str))),
+                        "hardened_runtime" => config.signing.hardened_runtime = val_str != "false",
                         _ => {}
                     },
                     _ => {}

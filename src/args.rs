@@ -46,6 +46,53 @@ impl BuildTarget {
             Self::WebJs => "web-js",
         }
     }
+
+    /// Primary LLVM / Rust cross-compilation target triple for this build target.
+    pub fn default_target_triple(&self) -> &'static str {
+        match self {
+            #[cfg(target_os = "macos")]
+            Self::Desktop => "aarch64-apple-darwin",
+            #[cfg(target_os = "windows")]
+            Self::Desktop => "x86_64-pc-windows-msvc",
+            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+            Self::Desktop => "x86_64-unknown-linux-gnu",
+            Self::Linux => "x86_64-unknown-linux-gnu",
+            Self::Windows => "x86_64-pc-windows-msvc",
+            Self::MacOs => "aarch64-apple-darwin",
+            Self::Android => "aarch64-linux-android",
+            Self::Ios => "aarch64-apple-ios",
+            Self::WebWasm | Self::WebJs => "wasm32-unknown-unknown",
+        }
+    }
+
+    /// List of standard supported target triples for this build target platform.
+    pub fn supported_target_triples(&self) -> &'static [&'static str] {
+        match self {
+            Self::Desktop => &[
+                "x86_64-unknown-linux-gnu",
+                "aarch64-unknown-linux-gnu",
+                "x86_64-pc-windows-msvc",
+                "aarch64-apple-darwin",
+            ],
+            Self::Linux => &["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"],
+            Self::Windows => &["x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc", "x86_64-pc-windows-gnu"],
+            Self::MacOs => &["aarch64-apple-darwin", "x86_64-apple-darwin"],
+            Self::Android => &["aarch64-linux-android", "armv7-linux-androideabi", "x86_64-linux-android"],
+            Self::Ios => &["aarch64-apple-ios", "aarch64-apple-ios-sim", "x86_64-apple-ios"],
+            Self::WebWasm | Self::WebJs => &["wasm32-unknown-unknown"],
+        }
+    }
+
+    /// File extension for executable binaries on this build target.
+    pub fn binary_extension(&self) -> &'static str {
+        match self {
+            Self::Windows => ".exe",
+            Self::Android => ".so",
+            Self::WebWasm => ".wasm",
+            Self::WebJs => ".js",
+            _ => "",
+        }
+    }
 }
 
 /// Project template options for `strata new`.
@@ -101,6 +148,7 @@ pub enum PackageFormat {
     Rpm,
     PkgBuild,
     TarGz,
+    Zip,
     Flatpak,
     Snap,
 }
@@ -121,10 +169,11 @@ impl PackageFormat {
             "rpm" => Ok(Self::Rpm),
             "pkgbuild" | "arch" => Ok(Self::PkgBuild),
             "tar.gz" | "targz" | "tar" => Ok(Self::TarGz),
+            "zip" => Ok(Self::Zip),
             "flatpak" => Ok(Self::Flatpak),
             "snap" => Ok(Self::Snap),
             unknown => Err(format!(
-                "Invalid packaging format '{}'. Valid options: apk, aab, ipa, dmg, app, pkg, msi, exe, appimage, deb, rpm, pkgbuild, tar.gz, flatpak, snap",
+                "Invalid packaging format '{}'. Valid options: apk, aab, ipa, dmg, app, pkg, msi, exe, appimage, deb, rpm, pkgbuild, tar.gz, zip, flatpak, snap",
                 unknown
             )),
         }
@@ -164,6 +213,7 @@ impl PackageFormat {
             Self::Rpm => "rpm",
             Self::PkgBuild => "PKGBUILD",
             Self::TarGz => "tar.gz",
+            Self::Zip => "zip",
             Self::Flatpak => "flatpak",
             Self::Snap => "snap",
         }
@@ -203,13 +253,16 @@ pub enum CliCommand {
         format: Option<PackageFormat>,
         out_dir: Option<PathBuf>,
         env: Option<String>,
+        sign_identity: Option<String>,
+        notarize: bool,
+        keychain_profile: Option<String>,
+        certificate_thumbprint: Option<String>,
     },
     Test {
         parity: bool,
         verbose: bool,
         android: bool,
         ios: bool,
-        mock_ios: bool,
     },
     Sim {
         device: Option<String>,
@@ -313,6 +366,10 @@ impl CliArgs {
                                                      Mobile:  apk, aab, ipa\n\
                    -e, --env <ENV>                 Environment profile (development, production, staging, custom)\n\
                    -o, --out-dir <DIR>             Output directory for generated packages\n\
+                       --sign-identity <ID>        Certificate identity for Apple code signing\n\
+                       --notarize                  Submit macOS bundle/DMG to Apple Notary Service\n\
+                       --keychain-profile <NAME>   Keychain profile for Apple notarytool\n\
+                       --certificate-thumbprint <THUMBPRINT> SHA-1/SHA-256 certificate thumbprint for Windows signtool\n\
                    -h, --help                      Print this help message\n".to_string()
             }
             Some("test") => {
@@ -323,7 +380,6 @@ impl CliArgs {
                    -v, --verbose                   Print detailed per-fixture scorecards\n\
                        --android                   Run automated headless Android emulator test suite\n\
                        --ios                       Run automated iOS simulator test suite\n\
-                       --mock-ios                  Run Strata high-fidelity iOS mock runner\n\
                    -h, --help                      Print this help message\n".to_string()
             }
             Some("sim") | Some("simulator") => {
@@ -651,6 +707,10 @@ impl CliArgs {
         let mut format = None;
         let mut out_dir = None;
         let mut env = None;
+        let mut sign_identity = None;
+        let mut notarize = false;
+        let mut keychain_profile = None;
+        let mut certificate_thumbprint = None;
 
         let mut i = 0;
         while i < args.len() {
@@ -681,6 +741,26 @@ impl CliArgs {
                     return Err("Expected directory after '--out-dir'. Run 'strata package --help' for usage.".to_string());
                 }
                 out_dir = Some(PathBuf::from(&args[i]));
+            } else if arg == "--sign-identity" || arg == "--identity" {
+                i += 1;
+                if i >= args.len() {
+                    return Err("Expected identity after '--sign-identity'. Run 'strata package --help' for usage.".to_string());
+                }
+                sign_identity = Some(args[i].clone());
+            } else if arg == "--notarize" {
+                notarize = true;
+            } else if arg == "--keychain-profile" || arg == "--profile" {
+                i += 1;
+                if i >= args.len() {
+                    return Err("Expected profile name after '--keychain-profile'. Run 'strata package --help' for usage.".to_string());
+                }
+                keychain_profile = Some(args[i].clone());
+            } else if arg == "--certificate-thumbprint" || arg == "--thumbprint" {
+                i += 1;
+                if i >= args.len() {
+                    return Err("Expected thumbprint after '--certificate-thumbprint'. Run 'strata package --help' for usage.".to_string());
+                }
+                certificate_thumbprint = Some(args[i].clone());
             } else if arg.starts_with('-') {
                 return Err(format!(
                     "Unrecognized option '{}' for command 'package'. Run 'strata package --help' for usage.",
@@ -700,6 +780,10 @@ impl CliArgs {
             format,
             out_dir,
             env,
+            sign_identity,
+            notarize,
+            keychain_profile,
+            certificate_thumbprint,
         })
     }
 
@@ -708,7 +792,6 @@ impl CliArgs {
         let mut verbose = false;
         let mut android = false;
         let mut ios = false;
-        let mut mock_ios = false;
 
         let mut i = 0;
         while i < args.len() {
@@ -726,8 +809,6 @@ impl CliArgs {
                 android = true;
             } else if arg == "--ios" {
                 ios = true;
-            } else if arg == "--mock-ios" {
-                mock_ios = true;
             } else if arg.starts_with('-') {
                 return Err(format!(
                     "Unrecognized option '{}' for command 'test'. Run 'strata test --help' for usage.",
@@ -747,7 +828,6 @@ impl CliArgs {
             verbose,
             android,
             ios,
-            mock_ios,
         })
     }
 

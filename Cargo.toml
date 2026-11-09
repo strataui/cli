@@ -15,12 +15,12 @@ name = "strata"
 path = "src/main.rs"
 
 [dependencies]
-strata = { path = "../strata/crates/strata" }
-strata_dom = { path = "../strata/crates/core/strata_dom" }
-strata_codegen_js = { path = "../mica/crates/strata_codegen_js" }
-strata_mobile_test = { path = "../strata/crates/harnesses/strata_mobile_test" }
-strata_sim = { path = "../strata/crates/harnesses/strata_sim" }
-strata_mcp = { path = "../strata/crates/tooling/strata_mcp" }
+strata = { git = "https://github.com/strataui/strata.git" }
+strata_dom = { git = "https://github.com/strataui/strata.git" }
+strata_codegen_js = { git = "https://github.com/strataui/strata.git" }
+strata_mobile_test = { git = "https://github.com/strataui/strata.git" }
+strata_sim = { git = "https://github.com/strataui/strata.git" }
+strata_mcp = { git = "https://github.com/strataui/strata.git" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 flate2 = "1.0"

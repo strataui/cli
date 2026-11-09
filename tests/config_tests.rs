@@ -138,3 +138,69 @@ fn test_load_from_dir_precedence() {
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn test_parse_signing_config_toml_and_yaml() {
+    let toml_content = r#"
+[app]
+name = "signed-app"
+version = "1.0.0"
+
+[signing]
+identity = "Developer ID Application: Strata Inc (12345ABCDE)"
+notarize = true
+keychain_profile = "STRATA_NOTARY_PROFILE"
+certificate_thumbprint = "0123456789ABCDEF0123456789ABCDEF01234567"
+timestamp_server = "http://timestamp.digicert.com"
+entitlements = "build/entitlements.plist"
+hardened_runtime = true
+"#;
+
+    let cfg_toml = StrataConfig::from_toml(toml_content).unwrap();
+    assert_eq!(
+        cfg_toml.signing.identity,
+        Some("Developer ID Application: Strata Inc (12345ABCDE)".to_string())
+    );
+    assert!(cfg_toml.signing.notarize);
+    assert_eq!(
+        cfg_toml.signing.keychain_profile,
+        Some("STRATA_NOTARY_PROFILE".to_string())
+    );
+    assert_eq!(
+        cfg_toml.signing.certificate_thumbprint,
+        Some("0123456789ABCDEF0123456789ABCDEF01234567".to_string())
+    );
+    assert_eq!(
+        cfg_toml.signing.timestamp_server,
+        Some("http://timestamp.digicert.com".to_string())
+    );
+    assert!(cfg_toml.signing.hardened_runtime);
+
+    let yaml_content = r#"
+app:
+  name: "signed-yaml-app"
+  version: "1.0.0"
+
+signing:
+  apple_identity: "Apple Development: Engineer (98765XYZ)"
+  notarize: false
+  windows_thumbprint: "FEDCBA9876543210FEDCBA9876543210FEDCBA98"
+  timestamp: "http://timestamp.comodoca.com"
+"#;
+
+    let cfg_yaml = StrataConfig::from_yaml(yaml_content).unwrap();
+    assert_eq!(
+        cfg_yaml.signing.identity,
+        Some("Apple Development: Engineer (98765XYZ)".to_string())
+    );
+    assert!(!cfg_yaml.signing.notarize);
+    assert_eq!(
+        cfg_yaml.signing.certificate_thumbprint,
+        Some("FEDCBA9876543210FEDCBA9876543210FEDCBA98".to_string())
+    );
+    assert_eq!(
+        cfg_yaml.signing.timestamp_server,
+        Some("http://timestamp.comodoca.com".to_string())
+    );
+}
+
