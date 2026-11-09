@@ -41,7 +41,7 @@ mod sys {
 }
 
 #[cfg(unix)]
-static mut SAVED_TERMIOS: Option<sys::Termios> = None;
+static SAVED_TERMIOS: std::sync::Mutex<Option<sys::Termios>> = std::sync::Mutex::new(None);
 #[cfg(unix)]
 static RAW_MODE_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -52,8 +52,10 @@ extern "C" fn sigint_handler(_sig: i32) {
         let _ = sys::write(1, msg.as_ptr(), msg.len());
 
         if RAW_MODE_ACTIVE.load(std::sync::atomic::Ordering::SeqCst) {
-            if let Some(ref orig) = SAVED_TERMIOS {
-                let _ = sys::tcsetattr(0, sys::TCSANOW, orig);
+            if let Ok(guard) = SAVED_TERMIOS.try_lock() {
+                if let Some(ref orig) = *guard {
+                    let _ = sys::tcsetattr(0, sys::TCSANOW, orig);
+                }
             }
         }
 
@@ -72,6 +74,9 @@ impl Drop for RawModeGuard {
         #[cfg(unix)]
         unsafe {
             RAW_MODE_ACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
+            if let Ok(mut guard) = SAVED_TERMIOS.lock() {
+                *guard = None;
+            }
             sys::tcsetattr(0, sys::TCSANOW, &self.orig_termios);
         }
         // Always restore cursor visibility on drop
@@ -112,7 +117,9 @@ impl Terminal {
             if sys::tcgetattr(0, &mut orig) != 0 {
                 return None;
             }
-            SAVED_TERMIOS = Some(orig);
+            if let Ok(mut guard) = SAVED_TERMIOS.lock() {
+                *guard = Some(orig);
+            }
             RAW_MODE_ACTIVE.store(true, std::sync::atomic::Ordering::SeqCst);
 
             sys::signal(sys::SIGINT, sigint_handler);
