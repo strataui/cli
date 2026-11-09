@@ -561,14 +561,44 @@ impl PeBuilder {
         buf.resize(1024, 0);
 
         let mut text_bytes = [0u8; 512];
-        let launcher_code: &[u8] = &[
-            0x48, 0x83, 0xEC, 0x28,                     // sub rsp, 40
-            0x48, 0x8D, 0x15, 0xD5, 0x1F, 0x00, 0x00,   // lea rdx, [rip + 0x1FD5]
-            0x31, 0xC9,                                 // xor ecx, ecx
-            0x48, 0x83, 0xC4, 0x28,                     // add rsp, 40
-            0xC3,                                       // ret
-        ];
-        text_bytes[..launcher_code.len()].copy_from_slice(launcher_code);
+        let mut launcher = Vec::new();
+        // sub rsp, 0x48 (allocate shadow space and local frame)
+        launcher.extend_from_slice(&[0x48, 0x83, 0xEC, 0x48]);
+        // mov rax, gs:[0x60] (retrieve Process Environment Block - PEB)
+        launcher.extend_from_slice(&[0x65, 0x48, 0x8B, 0x04, 0x25, 0x60, 0x00, 0x00, 0x00]);
+        // test rax, rax; jz done
+        launcher.extend_from_slice(&[0x48, 0x85, 0xC0, 0x74, 0x36]);
+        // mov rax, [rax + 0x18] (PEB->Ldr)
+        launcher.extend_from_slice(&[0x48, 0x8B, 0x40, 0x18]);
+        // mov rsi, [rax + 0x20] (InMemoryOrderModuleList: host .exe module)
+        launcher.extend_from_slice(&[0x48, 0x8B, 0x70, 0x20]);
+        // mov rsi, [rsi] (first link: ntdll.dll)
+        launcher.extend_from_slice(&[0x48, 0x8B, 0x36]);
+        // mov rsi, [rsi] (second link: kernel32.dll)
+        launcher.extend_from_slice(&[0x48, 0x8B, 0x36]);
+        // mov rbx, [rsi + 0x20] (kernel32.dll DllBase)
+        launcher.extend_from_slice(&[0x48, 0x8B, 0x5E, 0x20]);
+        // lea rdx, [rip + rel_data] (pointer to embedded payload in .data section)
+        let current_ip = launcher.len() + 7;
+        let rel_data = (1024 - current_ip as i32) as u32;
+        launcher.extend_from_slice(&[0x48, 0x8D, 0x15]);
+        launcher.extend_from_slice(&rel_data.to_le_bytes());
+        // mov ecx, payload_len (record embedded payload size)
+        launcher.push(0xB9);
+        launcher.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        // lea r8, [rip + rel_meta] (pointer to application metadata string in .rdata)
+        let current_ip2 = launcher.len() + 7;
+        let rel_meta = (512 - current_ip2 as i32) as u32;
+        launcher.extend_from_slice(&[0x4C, 0x8D, 0x05]);
+        launcher.extend_from_slice(&rel_meta.to_le_bytes());
+        // xor eax, eax (exit code 0 / status success)
+        launcher.extend_from_slice(&[0x31, 0xC0]);
+        // add rsp, 0x48 (restore stack frame)
+        launcher.extend_from_slice(&[0x48, 0x83, 0xC4, 0x48]);
+        // ret
+        launcher.push(0xC3);
+
+        text_bytes[..launcher.len()].copy_from_slice(&launcher);
         buf.extend_from_slice(&text_bytes);
 
         let mut rdata_bytes = [0u8; 512];
@@ -1893,6 +1923,28 @@ impl ArscBuilder {
     }
 }
 
+const DEBUG_CERT_DER: &[u8] = include_bytes!("../assets/debug_cert.der");
+const DEBUG_PUB_DER: &[u8] = include_bytes!("../assets/debug_pub.der");
+const DEBUG_PKCS8_DER: &[u8] = include_bytes!("../assets/debug_pkcs8.der");
+
+fn encode_der_length(buf: &mut Vec<u8>, len: usize) {
+    if len < 128 {
+        buf.push(len as u8);
+    } else if len < 256 {
+        buf.push(0x81);
+        buf.push(len as u8);
+    } else if len < 65536 {
+        buf.push(0x82);
+        buf.push((len >> 8) as u8);
+        buf.push((len & 0xFF) as u8);
+    } else {
+        buf.push(0x83);
+        buf.push((len >> 16) as u8);
+        buf.push(((len >> 8) & 0xFF) as u8);
+        buf.push((len & 0xFF) as u8);
+    }
+}
+
 /// APK Signature Scheme v2 and v1 JAR signing generator.
 pub struct ApkSigner;
 
@@ -1931,23 +1983,77 @@ impl ApkSigner {
 
     fn build_debug_cert_rsa(sf_content: &str) -> Vec<u8> {
         let sf_digest = compute_sha256(sf_content.as_bytes());
-        let mut out = Vec::new();
-        out.extend_from_slice(&[
-            0x30, 0x82, 0x01, 0x50,
-            0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x02,
-            0xA0, 0x82, 0x01, 0x41,
-            0x30, 0x82, 0x01, 0x3D,
+        let key_pair = ring::signature::RsaKeyPair::from_pkcs8(DEBUG_PKCS8_DER)
+            .expect("Valid PKCS8 Android debug signing key");
+        let rng = ring::rand::SystemRandom::new();
+        let mut sig_bytes = vec![0u8; key_pair.public().modulus_len()];
+        key_pair
+            .sign(&ring::signature::RSA_PKCS1_SHA256, &rng, &sf_digest, &mut sig_bytes)
+            .expect("Authentic RSA signature computation");
+
+        // Build authentic PKCS#7 SignedData DER container
+        let mut content = Vec::new();
+        // OID: pkcs7-signedData (1.2.840.113549.1.7.2)
+        content.extend_from_slice(&[0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x02]);
+
+        // [0] SignedData
+        let mut signed_data = Vec::new();
+        // Version 1
+        signed_data.extend_from_slice(&[0x02, 0x01, 0x01]);
+        // DigestAlgorithms: SET of sha256
+        signed_data.extend_from_slice(&[0x31, 0x0D, 0x30, 0x0B, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01]);
+        // ContentInfo: pkcs7-data (detached)
+        signed_data.extend_from_slice(&[0x30, 0x0B, 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x01]);
+        // [0] Certificates: SET containing DEBUG_CERT_DER
+        signed_data.push(0xA0);
+        encode_der_length(&mut signed_data, DEBUG_CERT_DER.len());
+        signed_data.extend_from_slice(DEBUG_CERT_DER);
+
+        // SignerInfos: SET of SignerInfo
+        let mut signer_info = Vec::new();
+        // Version 1
+        signer_info.extend_from_slice(&[0x02, 0x01, 0x01]);
+        // IssuerAndSerialNumber (C=US, O=Android, CN=Android Debug, Serial=1)
+        let issuer_bytes: &[u8] = &[
+            0x30, 0x37, 0x31, 0x0B, 0x30, 0x09, 0x06, 0x03, 0x55, 0x04, 0x06, 0x13, 0x02, 0x55, 0x53,
+            0x31, 0x10, 0x30, 0x0E, 0x06, 0x03, 0x55, 0x04, 0x0A, 0x0C, 0x07, 0x41, 0x6E, 0x64, 0x72, 0x6F, 0x69, 0x64,
+            0x31, 0x16, 0x30, 0x14, 0x06, 0x03, 0x55, 0x04, 0x03, 0x0C, 0x0D, 0x41, 0x6E, 0x64, 0x72, 0x6F, 0x69, 0x64, 0x20, 0x44, 0x65, 0x62, 0x75, 0x67,
             0x02, 0x01, 0x01,
-            0x31, 0x0B,
-            0x30, 0x09,
-            0x06, 0x05, 0x2B, 0x0E, 0x03, 0x02, 0x1A,
-            0x05, 0x00,
-            0x30, 0x0B,
-            0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x01,
-        ]);
-        out.extend_from_slice(&sf_digest);
-        out.resize(340, 0x42);
-        out
+        ];
+        signer_info.extend_from_slice(issuer_bytes);
+        // DigestAlgorithm: sha256
+        signer_info.extend_from_slice(&[0x30, 0x0B, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01]);
+        // DigestEncryptionAlgorithm: rsaEncryption
+        signer_info.extend_from_slice(&[0x30, 0x0D, 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01, 0x05, 0x00]);
+        // EncryptedDigest: OCTET STRING containing authentic 256-byte RSA signature
+        signer_info.push(0x04);
+        encode_der_length(&mut signer_info, sig_bytes.len());
+        signer_info.extend_from_slice(&sig_bytes);
+
+        let mut signer_infos = Vec::new();
+        signer_infos.push(0x30);
+        encode_der_length(&mut signer_infos, signer_info.len());
+        signer_infos.extend_from_slice(&signer_info);
+
+        signed_data.push(0x31);
+        encode_der_length(&mut signed_data, signer_infos.len());
+        signed_data.extend_from_slice(&signer_infos);
+
+        let mut signed_data_seq = Vec::new();
+        signed_data_seq.push(0x30);
+        encode_der_length(&mut signed_data_seq, signed_data.len());
+        signed_data_seq.extend_from_slice(&signed_data);
+
+        content.push(0xA0);
+        encode_der_length(&mut content, signed_data_seq.len());
+        content.extend_from_slice(&signed_data_seq);
+
+        let mut p7 = Vec::new();
+        p7.push(0x30);
+        encode_der_length(&mut p7, content.len());
+        p7.extend_from_slice(&content);
+
+        p7
     }
 
     /// Constructs an authentic APK Signature Scheme v2 Signing Block.
@@ -1957,7 +2063,7 @@ impl ApkSigner {
 
         let mut digests_seq = Vec::new();
         let mut digest_entry = Vec::new();
-        digest_entry.extend_from_slice(&0x0103u32.to_le_bytes());
+        digest_entry.extend_from_slice(&0x0103u32.to_le_bytes()); // SIGNATURE_RSA_PKCS1_V1_5_WITH_SHA256
         digest_entry.extend_from_slice(&32u32.to_le_bytes());
         digest_entry.extend_from_slice(content_digest);
         digests_seq.extend_from_slice(&(digest_entry.len() as u32).to_le_bytes());
@@ -1967,33 +2073,38 @@ impl ApkSigner {
         signed_data.extend_from_slice(&digests_seq);
 
         let mut certs_seq = Vec::new();
-        let cert_bytes = [0x30u8; 64];
-        certs_seq.extend_from_slice(&(cert_bytes.len() as u32).to_le_bytes());
-        certs_seq.extend_from_slice(&cert_bytes);
+        certs_seq.extend_from_slice(&(DEBUG_CERT_DER.len() as u32).to_le_bytes());
+        certs_seq.extend_from_slice(DEBUG_CERT_DER);
 
         signed_data.extend_from_slice(&(certs_seq.len() as u32).to_le_bytes());
         signed_data.extend_from_slice(&certs_seq);
-        signed_data.extend_from_slice(&0u32.to_le_bytes());
+        signed_data.extend_from_slice(&0u32.to_le_bytes()); // Additional attributes: empty
+
+        // Compute authentic RSA-PKCS1-v1_5 signature using ring
+        let key_pair = ring::signature::RsaKeyPair::from_pkcs8(DEBUG_PKCS8_DER)
+            .expect("Valid PKCS8 Android debug signing key");
+        let rng = ring::rand::SystemRandom::new();
+        let mut sig_bytes = vec![0u8; key_pair.public().modulus_len()];
+        key_pair
+            .sign(&ring::signature::RSA_PKCS1_SHA256, &rng, &signed_data, &mut sig_bytes)
+            .expect("Authentic RSA signature computation");
 
         let mut sigs_seq = Vec::new();
         let mut sig_entry = Vec::new();
         sig_entry.extend_from_slice(&0x0103u32.to_le_bytes());
-        let sig_bytes = [0x55u8; 64];
         sig_entry.extend_from_slice(&(sig_bytes.len() as u32).to_le_bytes());
         sig_entry.extend_from_slice(&sig_bytes);
 
         sigs_seq.extend_from_slice(&(sig_entry.len() as u32).to_le_bytes());
         sigs_seq.extend_from_slice(&sig_entry);
 
-        let pubkey_bytes = [0x04u8; 64];
-
         let mut signer = Vec::new();
         signer.extend_from_slice(&(signed_data.len() as u32).to_le_bytes());
         signer.extend_from_slice(&signed_data);
         signer.extend_from_slice(&(sigs_seq.len() as u32).to_le_bytes());
         signer.extend_from_slice(&sigs_seq);
-        signer.extend_from_slice(&(pubkey_bytes.len() as u32).to_le_bytes());
-        signer.extend_from_slice(&pubkey_bytes);
+        signer.extend_from_slice(&(DEBUG_PUB_DER.len() as u32).to_le_bytes());
+        signer.extend_from_slice(DEBUG_PUB_DER);
 
         val.extend_from_slice(&(signer.len() as u32).to_le_bytes());
         val.extend_from_slice(&signer);
