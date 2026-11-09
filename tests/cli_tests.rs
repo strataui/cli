@@ -339,3 +339,65 @@ fn test_scaffold_allows_existing_empty_directory() {
     assert!(result.is_ok());
     let _ = fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn test_apk_signature_scheme_v2() {
+    let temp_dir = std::env::temp_dir().join(format!("strata_cli_apk_v2_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(&temp_dir).unwrap();
+
+    let dist_target = temp_dir.join("dist").join("android");
+    fs::create_dir_all(&dist_target).unwrap();
+    let bin_path = dist_target.join("strata-app");
+    let mut elf = vec![0u8; 1024];
+    elf[0..4].copy_from_slice(b"\x7fELF");
+    elf[4] = 2; // 64-bit
+    elf[5] = 1; // little endian
+    elf[6] = 1; // version
+    elf[16..18].copy_from_slice(&3u16.to_le_bytes()); // ET_DYN (shared object)
+    elf[18..20].copy_from_slice(&183u16.to_le_bytes()); // AArch64 (183)
+    elf[20..24].copy_from_slice(&1u32.to_le_bytes());
+    fs::write(&bin_path, elf).unwrap();
+
+    let report = Packager::package(BuildTarget::Android, Some(PackageFormat::Apk), &temp_dir).unwrap();
+    assert_eq!(report.format, PackageFormat::Apk);
+    assert!(report.package_path.exists());
+
+    let apk_bytes = fs::read(&report.package_path).unwrap();
+    assert!(
+        apk_bytes.windows(16).any(|w| w == b"APK Sig Block 42"),
+        "Packaged APK must contain standard APK Signature Scheme v2 Signing Block with magic 'APK Sig Block 42'"
+    );
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_linux_packaging_formats() {
+    let temp_dir = std::env::temp_dir().join(format!("strata_cli_linux_formats_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(&temp_dir).unwrap();
+
+    let dist_target = temp_dir.join("dist").join("desktop");
+    fs::create_dir_all(&dist_target).unwrap();
+    let bin_path = dist_target.join("strata-app");
+    fs::write(&bin_path, vec![0x7f, b'E', b'L', b'F', 2, 1, 1, 0]).unwrap();
+
+    let report = Packager::package(BuildTarget::Desktop, Some(PackageFormat::AppImage), &temp_dir).unwrap();
+    assert_eq!(report.format, PackageFormat::AppImage);
+    assert!(report.package_path.exists());
+
+    let desktop_file = temp_dir.join("dist/packages/strata-app.AppDir/strata-app.desktop");
+    assert!(desktop_file.exists());
+    let desktop_text = fs::read_to_string(&desktop_file).unwrap();
+    assert!(desktop_text.contains("Version=1.5"), "Must conform to Desktop Entry 1.5");
+    assert!(desktop_text.contains("Terminal=false"));
+
+    let apprun_file = temp_dir.join("dist/packages/strata-app.AppDir/AppRun");
+    assert!(apprun_file.exists());
+    let apprun_text = fs::read_to_string(&apprun_file).unwrap();
+    assert!(apprun_text.contains("LD_LIBRARY_PATH"), "AppRun must configure LD_LIBRARY_PATH");
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+

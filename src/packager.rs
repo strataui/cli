@@ -561,7 +561,14 @@ impl PeBuilder {
         buf.resize(1024, 0);
 
         let mut text_bytes = [0u8; 512];
-        text_bytes[0..3].copy_from_slice(&[0x31, 0xC0, 0xC3]);
+        let launcher_code: &[u8] = &[
+            0x48, 0x83, 0xEC, 0x28,                     // sub rsp, 40
+            0x48, 0x8D, 0x15, 0xD5, 0x1F, 0x00, 0x00,   // lea rdx, [rip + 0x1FD5]
+            0x31, 0xC9,                                 // xor ecx, ecx
+            0x48, 0x83, 0xC4, 0x28,                     // add rsp, 40
+            0xC3,                                       // ret
+        ];
+        text_bytes[..launcher_code.len()].copy_from_slice(launcher_code);
         buf.extend_from_slice(&text_bytes);
 
         let mut rdata_bytes = [0u8; 512];
@@ -2557,12 +2564,16 @@ impl Packager {
                 // AppDir structure with AppRun script, desktop entry, and executable payload
                 let appdir = dist_dir.join(format!("{}.AppDir", app_name));
                 let usr_bin = appdir.join("usr").join("bin");
+                let usr_lib = appdir.join("usr").join("lib");
                 fs::create_dir_all(&usr_bin).map_err(|e| e.to_string())?;
+                fs::create_dir_all(&usr_lib).map_err(|e| e.to_string())?;
 
                 let apprun_path = appdir.join("AppRun");
                 let apprun_content = format!(
                     "#!/bin/sh\n\
                      HERE=\"$(dirname \"$(readlink -f \"${{0}}\")\")\"\n\
+                     export LD_LIBRARY_PATH=\"${{HERE}}/usr/lib:${{HERE}}/usr/lib/x86_64-linux-gnu:${{LD_LIBRARY_PATH}}\"\n\
+                     export XDG_DATA_DIRS=\"${{HERE}}/usr/share:${{XDG_DATA_DIRS:-/usr/local/share:/usr/share}}\"\n\
                      exec \"${{HERE}}/usr/bin/{}\" \"$@\"\n",
                     app_name
                 );
@@ -2577,10 +2588,12 @@ impl Packager {
                 let desktop_path = appdir.join(format!("{}.desktop", app_name));
                 let desktop_content = format!(
                     "[Desktop Entry]\n\
+                     Version=1.5\n\
                      Name={}\n\
                      Exec={}\n\
                      Icon=strata\n\
                      Type=Application\n\
+                     Terminal=false\n\
                      Categories=Utility;\n",
                     window_title, app_name
                 );
@@ -2734,8 +2747,12 @@ impl Packager {
                 }
 
                 if !created_via_tool {
-                    let exe_bytes = PeBuilder::build(&app_name, &app_version, &binary_bytes);
-                    fs::write(&package_path, &exe_bytes).map_err(|e| e.to_string())?;
+                    if binary_bytes.starts_with(b"MZ") && binary_bytes.len() >= 512 {
+                        fs::write(&package_path, &binary_bytes).map_err(|e| e.to_string())?;
+                    } else {
+                        let exe_bytes = PeBuilder::build(&app_name, &app_version, &binary_bytes);
+                        fs::write(&package_path, &exe_bytes).map_err(|e| e.to_string())?;
+                    }
                 }
                 generated_files.push(package_path.clone());
             }
