@@ -1,13 +1,53 @@
-[package]
-name = "strata_cli"
+[workspace]
+resolver = "2"
+members = [
+    ".",
+    "crates/strata_mobile_test",
+    "crates/strata_sim",
+]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
 authors = ["Strata Contributors"]
 license = "MIT"
-description = "Universal Developer CLI, Scaffolding Engine, and Cross-Platform Packaging Toolchain for Strata"
 repository = "https://github.com/strataui/cli"
+homepage = "https://github.com/strataui/cli"
+documentation = "https://docs.rs/strata-ui-cli"
+keywords = ["strata", "cli", "hmr", "mobile-test", "simulator"]
+categories = ["command-line-utilities", "development-tools"]
+
+[workspace.dependencies]
+strata-mobile-test = { path = "crates/strata_mobile_test", version = "0.1.0" }
+strata-sim = { path = "crates/strata_sim", version = "0.1.0" }
+strata-ui = "0.1.4"
+strata-primitives = "0.1.0"
+strata-dom = "0.1.2"
+strata-macro = "0.1.2"
+strata-style = "0.1.0"
+strata-layout = "0.1.0"
+strata-device = "0.1.0"
+strata-hot-reload = "0.1.0"
+strata-codegen-js = "0.1.0"
+strata-mcp = "0.1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[package]
+name = "strata-ui-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Universal Developer CLI, State-Preserving HMR Dev Server, Scaffolding Engine, and Cross-Platform Packaging Toolchain for Strata"
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [lib]
+name = "strata_cli"
 path = "src/lib.rs"
 
 [[bin]]
@@ -15,13 +55,17 @@ name = "strata"
 path = "src/main.rs"
 
 [dependencies]
-strata = { git = "https://github.com/strataui/strata.git" }
-strata_dom = { git = "https://github.com/strataui/strata.git" }
-strata_codegen_js = { git = "https://github.com/strataui/strata.git" }
-strata_mobile_test = { git = "https://github.com/strataui/strata.git" }
-strata_sim = { git = "https://github.com/strataui/strata.git" }
-strata_mcp = { git = "https://github.com/strataui/strata.git" }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+strata-ui = { workspace = true }
+strata-dom = { workspace = true }
+strata-codegen-js = { workspace = true }
+strata-mobile-test = { workspace = true }
+strata-sim = { workspace = true }
+strata-mcp = { workspace = true }
+strata-hot-reload = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 flate2 = "1.0"
 ring = "0.17"
+
+[profile.dev]
+opt-level = 1

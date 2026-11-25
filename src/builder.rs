@@ -3,7 +3,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use strata_codegen_js::prelude::*;
-use strata_dom::{NodeBlueprint, Tag};
 
 use crate::args::BuildTarget;
 use crate::config::StrataConfig;
@@ -74,13 +73,13 @@ impl BuildRunner {
                     ..Default::default()
                 };
 
-                // Root component blueprint for standalone bundle
-                let blueprint = NodeBlueprint::Element {
-                    tag: Tag::Div,
-                    classes: vec!["flex flex-col items-center justify-center h-screen".to_string()].into(),
-                    attributes: vec![],
-                    children: vec![NodeBlueprint::text(strata_cfg.app.name.clone())],
-                };
+                // Root component node tree for standalone bundle
+                let blueprint = CodegenNode::element(
+                    "div",
+                    vec!["flex flex-col items-center justify-center h-screen".to_string()],
+                    vec![],
+                    vec![CodegenNode::text(strata_cfg.app.name.clone())],
+                );
 
                 let bundle = WebTargetBuilder::build(&config, &blueprint);
 
@@ -119,7 +118,7 @@ impl BuildRunner {
                     ..Default::default()
                 };
 
-                let blueprint = NodeBlueprint::empty();
+                let blueprint = CodegenNode::empty();
                 let bundle = WebTargetBuilder::build(&config, &blueprint);
 
                 let html_path = dist_target.join("index.html");

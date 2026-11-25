@@ -1,0 +1,14 @@
+[package]
+name = "strata-mobile-test"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Automated Mobile Testing, Pure-Rust ADB Client, Multi-Backend Emulator Orchestration, and SSIM Visual Regression for Strata"
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/strata-mobile-test"
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]

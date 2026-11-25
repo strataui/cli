@@ -74,14 +74,21 @@ impl ProjectScaffolder {
             .map_err(|e| format!("Failed to write src/main.rs: {}", e))?;
         created_files.push(main_rs_path);
 
-        // 4. README.md
+        // 4. src/lib.rs (HMR cdylib export entry point for `strata dev`)
+        let lib_rs_path = src_dir.join("lib.rs");
+        let lib_content = Self::generate_lib_rs();
+        fs::write(&lib_rs_path, lib_content)
+            .map_err(|e| format!("Failed to write src/lib.rs: {}", e))?;
+        created_files.push(lib_rs_path);
+
+        // 5. README.md
         let readme_path = project_root.join("README.md");
         let readme_content = Self::generate_readme(name, template);
         fs::write(&readme_path, readme_content)
             .map_err(|e| format!("Failed to write README.md: {}", e))?;
         created_files.push(readme_path);
 
-        // 5. .gitignore
+        // 6. .gitignore
         let gitignore_path = project_root.join(".gitignore");
         let gitignore_content = Self::generate_gitignore();
         fs::write(&gitignore_path, gitignore_content)
@@ -96,16 +103,30 @@ impl ProjectScaffolder {
         })
     }
 
+    pub fn generate_lib_rs() -> String {
+        r#"//! Strata HMR dynamic-library entry point used automatically by `strata dev`.
+
+#[allow(dead_code)]
+#[path = "main.rs"]
+mod app;
+
+strata::hot_reload::export_hot_view!(app::App);
+"#
+        .to_string()
+    }
+
     pub fn generate_cargo_toml(name: &str) -> String {
-        let strata_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../strata");
         format!(
             r#"[package]
 name = "{name}"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+crate-type = ["rlib", "cdylib"]
+
 [dependencies]
-strata = {{ path = "{strata_path}", version = "0.1.0" }}
+strata-ui = {{ version = "0.1", features = ["hot-reload"] }}
 "#
         )
     }
@@ -135,13 +156,21 @@ target = "web-js"
             TemplateKind::Blank => r#"use strata::prelude::*;
 
 #[component]
-fn App() -> View {
+pub fn App() -> View {
+    let clicks = use_hmr_signal("welcome_clicks", 0i32);
+    let on_click = {
+        let clicks = clicks.clone();
+        move |_| clicks.set(clicks.get() + 1)
+    };
     rsx! {
         <div class="flex flex-col items-center justify-center h-screen bg-[#09090b] text-white">
             <h1 class="text-3xl font-bold mb-4">{"Welcome to Strata"}</h1>
             <p class="text-zinc-400 mb-6">{"Zero Chromium. Pure Rust. Pixel-Perfect."}</p>
-            <div class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-md font-semibold transition cursor-pointer">
-                {"Get Started with Strata"}
+            <div
+                on:click={on_click}
+                class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-md font-semibold transition cursor-pointer"
+            >
+                {format!("Get Started with Strata ({})", clicks.get())}
             </div>
         </div>
     }
@@ -166,7 +195,7 @@ fn MetricCard(title: &'static str, value: &'static str, delta: &'static str) -> 
 }
 
 #[component]
-fn App() -> View {
+pub fn App() -> View {
     rsx! {
         <div class="flex flex-col h-screen bg-black text-white p-8">
             <header class="flex justify-between items-center mb-8 pb-4 border-b border-zinc-800">
@@ -200,7 +229,7 @@ fn FileTreeItem(name: &'static str, is_active: bool) -> View {
 }
 
 #[component]
-fn App() -> View {
+pub fn App() -> View {
     rsx! {
         <div class="flex flex-col h-screen bg-[#09090b] text-zinc-100 font-sans select-none">
             <!-- Top Command Ribbon / Header -->
@@ -300,7 +329,7 @@ fn ProductCard(name: &'static str, price: &'static str, tag: &'static str) -> Vi
 }
 
 #[component]
-fn App() -> View {
+pub fn App() -> View {
     rsx! {
         <div class="min-h-screen bg-[#09090b] text-white p-8">
             <h1 class="text-2xl font-bold mb-6">{"Featured Collection"}</h1>
@@ -320,7 +349,7 @@ fn main() {
             TemplateKind::Studio => r#"use strata::prelude::*;
 
 #[component]
-fn App() -> View {
+pub fn App() -> View {
     rsx! {
         <div class="flex h-screen bg-[#0c0c0e] text-white">
             <aside class="w-64 border-r border-zinc-800 p-4 flex flex-col justify-between">

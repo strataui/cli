@@ -79,3 +79,48 @@ fn test_dev_server_http_status_listener() {
     stopper.store(false, Ordering::SeqCst);
     let _ = server_handle.join();
 }
+
+#[test]
+fn test_cargo_hmr_orchestrator_parses_cdylib_artifacts() {
+    let sample_linux = r#"
+{"reason":"compiler-artifact","target":{"crate_types":["rlib"]},"filenames":["/tmp/target/debug/libdemo.rlib"]}
+{"reason":"compiler-artifact","target":{"crate_types":["rlib","cdylib"]},"filenames":["/tmp/target/debug/libdemo.rlib","/tmp/target/debug/libdemo.so"]}
+{"reason":"build-finished","success":true}
+"#;
+    assert_eq!(
+        CargoHmrOrchestrator::parse_cdylib_from_cargo_json(sample_linux),
+        Some(std::path::PathBuf::from("/tmp/target/debug/libdemo.so"))
+    );
+
+    let sample_macos = r#"{"reason":"compiler-artifact","target":{"crate_types":["cdylib"]},"filenames":["/tmp/libdemo.dylib"]}"#;
+    assert_eq!(
+        CargoHmrOrchestrator::parse_cdylib_from_cargo_json(sample_macos),
+        Some(std::path::PathBuf::from("/tmp/libdemo.dylib"))
+    );
+
+    let sample_win = r#"{"reason":"compiler-artifact","target":{"crate_types":["cdylib"]},"filenames":["C:\\app\\target\\debug\\demo.dll"]}"#;
+    assert_eq!(
+        CargoHmrOrchestrator::parse_cdylib_from_cargo_json(sample_win),
+        Some(std::path::PathBuf::from("C:\\app\\target\\debug\\demo.dll"))
+    );
+}
+
+#[test]
+fn test_scaffold_generates_hmr_lib_rs_and_cdylib_manifest() {
+    let tmp = std::env::temp_dir().join(format!(
+        "strata_cli_hmr_scaffold_{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    let report = ProjectScaffolder::scaffold("hmr_demo", TemplateKind::Blank, &tmp).unwrap();
+    let lib_rs = std::fs::read_to_string(report.root_path.join("src/lib.rs")).unwrap();
+    let cargo_toml = std::fs::read_to_string(report.root_path.join("Cargo.toml")).unwrap();
+    assert!(lib_rs.contains("export_hot_view!(app::App)"));
+    assert!(cargo_toml.contains("crate-type = [\"rlib\", \"cdylib\"]"));
+    assert!(cargo_toml.contains("features = [\"hot-reload\"]"));
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+

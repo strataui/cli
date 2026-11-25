@@ -1,0 +1,23 @@
+[package]
+name = "strata-sim"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Strata Native Mobile Device Simulator and Virtual Phone Operating System in Pure Rust"
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/strata-sim"
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+strata-primitives = { workspace = true }
+strata-dom = { workspace = true }
+strata-macro = { workspace = true }
+strata-style = { workspace = true }
+strata-layout = { workspace = true }
+strata-device = { workspace = true }
+
+[dev-dependencies]
+strata-ui = { workspace = true }

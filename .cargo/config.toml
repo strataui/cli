@@ -1,7 +1,0 @@
-[patch."https://github.com/strataui/strata.git"]
-strata = { path = "../strata/crates/strata" }
-strata_dom = { path = "../strata/crates/core/strata_dom" }
-strata_codegen_js = { path = "../strata/crates/runtime/strata_codegen_js" }
-strata_mobile_test = { path = "../strata/crates/harnesses/strata_mobile_test" }
-strata_sim = { path = "../strata/crates/harnesses/strata_sim" }
-strata_mcp = { path = "../strata/crates/tooling/strata_mcp" }

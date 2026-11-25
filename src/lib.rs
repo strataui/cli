@@ -14,7 +14,7 @@ pub mod wizard;
 pub use args::{BuildTarget, CliArgs, CliCommand, PackageFormat, TemplateKind};
 pub use builder::{BinaryValidator, BuildReport, BuildRunner};
 pub use config::{AppConfig, EnvironmentConfig, PluginSpec, SigningConfig, StrataConfig, WebConfigSection, WindowConfigSection};
-pub use dev_server::{DevServer, DevServerConfig, HmrSession};
+pub use dev_server::{CargoHmrOrchestrator, DevServer, DevServerConfig, HmrPatchReport, HmrSession};
 pub use packager::{CodeSigner, PackageOptions, PackageReport, Packager, SigningReport};
 pub use parity::{ParityHarness, ParityReport, ParityTestCase};
 pub use plugin::{PluginContext, PluginEngine, StrataBuildPlugin};
@@ -30,7 +30,7 @@ pub mod prelude {
     pub use super::args::{BuildTarget, CliArgs, CliCommand, PackageFormat, TemplateKind};
     pub use super::builder::{BinaryValidator, BuildReport, BuildRunner};
     pub use super::config::{AppConfig, EnvironmentConfig, PluginSpec, SigningConfig, StrataConfig, WebConfigSection, WindowConfigSection};
-    pub use super::dev_server::{DevServer, DevServerConfig, HmrSession};
+    pub use super::dev_server::{CargoHmrOrchestrator, DevServer, DevServerConfig, HmrPatchReport, HmrSession};
     pub use super::packager::{CodeSigner, PackageOptions, PackageReport, Packager, SigningReport};
     pub use super::parity::{ParityHarness, ParityReport, ParityTestCase};
     pub use super::plugin::{PluginContext, PluginEngine, StrataBuildPlugin};
